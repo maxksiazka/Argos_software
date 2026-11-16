@@ -1,0 +1,215 @@
+#include <zephyr/dt-bindings/pinctrl/rpi-pico-rp2350a-pinctrl.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+    chosen {
+        zephyr,console = &cdc_acm_uart0;
+    };
+
+    aliases {
+        led0 = &led_err;
+        led1 = &led_stat;
+    };
+
+    leds {
+        compatible = "gpio-leds";
+        led_err: led_0 {
+            gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+            label = "Error LED (Red)";
+        };
+        led_stat: led_1 {
+            gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+            label = "Status LED (Green)";
+        };
+    };
+
+    /* 5 wyjść PWM (50 Hz) pod serwa MG90 i regulator ESC */
+    servos {
+        compatible = "pwm-servo";
+        pwm_out0: pwm_out0 {
+            pwms = <&pwm 0 PWM_MSEC(20) PWM_POLARITY_NORMAL>; /* GP16 - pwm0_a */
+            min-pulse = <PWM_USEC(1000)>;
+            max-pulse = <PWM_USEC(2000)>;
+        };
+        pwm_out1: pwm_out1 {
+            pwms = <&pwm 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>; /* GP17 - pwm0_b */
+            min-pulse = <PWM_USEC(1000)>;
+            max-pulse = <PWM_USEC(2000)>;
+        };
+        pwm_out2: pwm_out2 {
+            pwms = <&pwm 2 PWM_MSEC(20) PWM_POLARITY_NORMAL>; /* GP18 - pwm1_a */
+            min-pulse = <PWM_USEC(1000)>;
+            max-pulse = <PWM_USEC(2000)>;
+        };
+        pwm_out3: pwm_out3 {
+            pwms = <&pwm 10 PWM_MSEC(20) PWM_POLARITY_NORMAL>; /* GP26 - pwm5_a */
+            min-pulse = <PWM_USEC(1000)>;
+            max-pulse = <PWM_USEC(2000)>;
+        };
+        pwm_out4: pwm_out4 {
+            pwms = <&pwm 12 PWM_MSEC(20) PWM_POLARITY_NORMAL>; /* GP28 - pwm6_a */
+            min-pulse = <PWM_USEC(1000)>;
+            max-pulse = <PWM_USEC(2000)>;
+        };
+    };
+
+    /* Pomiar napięcia baterii na GP27 (ADC1) */
+    zephyr,user {
+        io-channels = <&adc 1>;
+    };
+};
+
+&pinctrl {
+    uart0_default: uart0_default {
+        group1 {
+            pinmux = <UART0_TX_P0>;
+        };
+        group2 {
+            pinmux = <UART0_RX_P1>;
+            input-enable;
+        };
+    };
+
+    uart1_default: uart1_default {
+        group1 {
+            pinmux = <UART1_TX_P4>;
+        };
+        group2 {
+            pinmux = <UART1_RX_P5>;
+            input-enable;
+        };
+    };
+
+    i2c0_default: i2c0_default {
+        group1 {
+            pinmux = <I2C0_SDA_P20>, <I2C0_SCL_P21>;
+            input-enable;
+            input-schmitt-enable;
+        };
+    };
+
+    i2c1_default: i2c1_default {
+        group1 {
+            pinmux = <I2C1_SDA_P6>, <I2C1_SCL_P7>;
+            input-enable;
+            input-schmitt-enable;
+        };
+    };
+
+    spi1_default: spi1_default {
+        group1 {
+            pinmux = <SPI1_SCK_P10>, <SPI1_TX_P11>;
+        };
+        group2 {
+            pinmux = <SPI1_RX_P8>;
+            input-enable;
+        };
+    };
+
+    pwm_default: pwm_default {
+        group1 {
+            pinmux = <PWM_0A_P16>, <PWM_0B_P17>, <PWM_1A_P18>,
+                     <PWM_5A_P26>, <PWM_6A_P28>;
+        };
+    };
+};
+
+/* Odbiornik ELRS (CRSF) */
+&uart0 {
+    status = "okay";
+    current-speed = <420000>;
+    pinctrl-0 = <&uart0_default>;
+    pinctrl-names = "default";
+
+    crsf: crsf {
+        compatible = "tbs,crsf";
+    };
+};
+
+/* GPS u-blox M8N */
+&uart1 {
+    status = "okay";
+    current-speed = <115200>;
+    pinctrl-0 = <&uart1_default>;
+    pinctrl-names = "default";
+};
+
+/* IMU + Barometr (400 kHz Fast Mode dla szybkiego próbkowania) */
+&i2c0 {
+    status = "okay";
+    pinctrl-0 = <&i2c0_default>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_FAST>;
+
+    bmi270: bmi270@68 {
+        compatible = "bosch,bmi270";
+        reg = <0x68>;
+        irq-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+        status = "okay";
+    };
+
+    bmp581: bmp581@46 {
+        compatible = "bosch,bmp581";
+        reg = <0x46>;
+        int-gpios = <&gpio0 19 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        odr = <0x0F>;       /* 50 Hz */
+        press-osr = <0x02>; /* 4x */
+        temp-osr = <0x00>;  /* 1x */
+        power-mode = <1>;   /* Normal */
+        status = "okay";
+    };
+};
+
+/* Magnetometr MMC5981 + Pitot (DiffPress) */
+&i2c1 {
+    status = "okay";
+    pinctrl-0 = <&i2c1_default>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_STANDARD>;
+    mmc5983ma: mmc5983ma@30 {
+        compatible = "memsic,mmc5983ma";
+        reg = <0x30>;
+        drdy-gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+        magn-odr = <50>;
+        bandwidth = <1>;
+        auto-set-reset;
+        status = "okay";
+    };
+};
+
+/* Karta microSD po SPI1 */
+&spi1 {
+    status = "okay";
+    pinctrl-0 = <&spi1_default>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+
+    sdhc0: sdhc@0 {
+        compatible = "zephyr,sdhc-spi-slot";
+        reg = <0>;
+        status = "okay";
+        spi-max-frequency = <1000000>;
+        mmc {
+            compatible = "zephyr,sdmmc-disk";
+            disk-name = "SDCARD";
+            status = "okay";
+        };
+    };
+};
+
+&pwm {
+    status = "okay";
+    pinctrl-0 = <&pwm_default>;
+    pinctrl-names = "default";
+};
+
+&adc {
+    status = "okay";
+};
+
+&zephyr_udc0 {
+    cdc_acm_uart0: cdc_acm_uart0 {
+        compatible = "zephyr,cdc-acm-uart";
+    };
+};

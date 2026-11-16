@@ -5,7 +5,9 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(Argos_app)
 
-target_sources(app PRIVATE src/main.c)
+file(GLOB_RECURSE app_sources CONFIGURE_DEPENDS "src/*.c")
+
+target_sources(app PRIVATE ${app_sources})
 
 target_include_directories(app PRIVATE inc)
 
